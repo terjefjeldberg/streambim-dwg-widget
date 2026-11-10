@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.npm-cache/
+*.log
+.research/
+*.zip
+widget-preview.jpg
+VERIFISERING.md
+.env
+.env.*
+!.env.example
+*.dwg
+*.dxf
