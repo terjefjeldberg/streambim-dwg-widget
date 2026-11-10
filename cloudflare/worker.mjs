@@ -5,7 +5,7 @@ export async function handleRequest(request,env={},fetchFile=fetch){
  if(url.pathname==='/health')return new Response('DWG file server ready',{headers:{'Content-Type':'text/plain','Cache-Control':'no-store'}});
  if(url.pathname!=='/streambim-file')return new Response('Not found',{status:404});
  const caller=request.headers.get('Origin');
- const allowed=(env.WIDGET_ALLOWED_ORIGINS||'').split(',').map(value=>value.trim()).filter(Boolean);
+ const allowed=(env.WIDGET_ALLOWED_ORIGINS||'https://terjefjeldberg.github.io').split(',').map(value=>value.trim()).filter(Boolean);
  // Browsers must come from a configured widget origin. Signed download links
  // remain mandatory; this service never receives StreamBIM login credentials.
  if(caller&&!allowed.includes(caller))return new Response('Widget origin is not allowed',{status:403});
