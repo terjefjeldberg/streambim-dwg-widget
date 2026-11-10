@@ -64,7 +64,7 @@ Den ferdige HTTPS-adressen må registreres/godkjennes som widget i StreamBIM og 
 
 Hver fil tolkes fullt som et eget skrivebeskyttet dokument. Vi samler ferdig konvertert modellgeometri i én visningsscene for å unngå at viewerens enklere overlay-funksjon utelater INSERT-blokker og mål. Kildedokumentene beholdes i minnet gjennom nettleserøkten, også når de fjernes fra visningen, slik at delte grafikkressurser ikke frigis for tidlig. Fjernede filer gjenbrukes ved ny åpning. Last siden på nytt for å frigjøre hele tegningsbufferen. Dette gir høyere minnebruk ved mange store filer. Samvisningen bruker versjonsbundne THREE-scenegrensesnitt og må testes ved oppgradering av MLightCAD.
 
-Kun modellrommet vises i samvisningen. Eksterne DWG-referanser, manglende SHX-fonter, proxyobjekter og enkelte DWG-entiteter kan kreve ekstra støtte. Identiske filnavn i ulike mapper holdes adskilt gjennom dokument-ID. Originale DWG-enheter og koordinater beholdes uten automatisk enhetskonvertering eller georeferering.
+Kun modellrommet vises i samvisningen. Eksterne DWG-underlag hentes automatisk fra den tilgjengelige prosjektlisten ved filnavn; treff i samme mappe foretrekkes. Innsettingens flytting, rotasjon og skalering beholdes. Sirkelreferanser og svært dype referansekjeder stoppes, og manglende eller tvetydige underlag gir melding. Filer uten synlig modellgeometri registreres ikke som vellykket åpnet. Manglende SHX-fonter, proxyobjekter, papirark og enkelte DWG-entiteter kan fortsatt kreve ekstra støtte. Identiske filnavn i ulike mapper holdes adskilt gjennom dokument-ID. Originale DWG-enheter og koordinater beholdes uten automatisk enhetskonvertering eller georeferering.
 
 ## Kontroller
 
@@ -74,6 +74,3 @@ npm run build
 ```
 
 Testene dekker prosjektvalg på tvers av prosjekter og regioner, sidevis innhenting, duplikater, slettede filer, DWG-filtrering og nedlastingslenker. Visuell kontroll med reelle prosjektfiler skal gjentas ved vieweroppgraderinger.
-
-
-

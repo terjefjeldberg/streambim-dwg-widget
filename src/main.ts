@@ -1,6 +1,7 @@
 import './style.css';
 import {ProjectSource,type Drawing} from './streambim';
 import {CombinedViewer} from './viewer';
+import {findReference} from './references.mjs';
 const icon=(name:string)=>{const paths:Record<string,string>={layers:'<path d="m12 3 10 5-10 5L2 8Z"/><path d="m2 12 10 5 10-5M2 16l10 5 10-5"/>',folder:'<path d="M3 7V5h6l2 2h10v13H3Z"/>',search:'<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',refresh:'<path d="M20 8a8 8 0 1 0 0 8M20 3v6h-6"/>',file:'<path d="M5 3h9l5 5v13H5Z"/><path d="M14 3v6h5M8 14h8M8 17h5"/>',fit:'<path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6"/>',link:'<path d="m9 15 6-6m-7 4-1 1a4 4 0 0 0 6 6l3-3m-3-9 1-1a4 4 0 0 1 6 6l-3 3"/>',plus:'<path d="M12 4v16M4 12h16"/>',close:'<path d="m6 6 12 12M18 6 6 18"/>',arrow:'<path d="M4 12h16m-6-6 6 6-6 6"/>',expand:'<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',eye:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>'};return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.file}</svg>`;};
 document.querySelector('#app')!.innerHTML=`
  <header class="topbar"><div class="brand"><span class="brand-icon">${icon('layers')}</span><div>DWG <span class="brand-light">Viewer</span><small>STREAMBIM WIDGET</small></div></div><div class="project"><span class="dot"></span><span id="project-label">StreamBIM-prosjekt <small>Prosjektet velges ved tilkobling</small></span></div><button id="connect" class="button secondary">${icon('link')} Koble til StreamBIM</button></header>
@@ -18,7 +19,10 @@ document.querySelector('#app')!.innerHTML=`
  <dialog id="connection-dialog"><div class="dialog-header"><div><strong>Koble til StreamBIM</strong><p>Logg inn i prosjektet hvis du blir bedt om det.</p></div><button id="close-dialog" class="icon-button" aria-label="Lukk tilkoblingsvindu">${icon('close')}</button></div><iframe id="streambim-frame" title="StreamBIM-prosjekt for tilkobling" allow="fullscreen"></iframe><div class="dialog-footer">Vinduet lukkes automatisk når forbindelsen er klar.</div></dialog>`;
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const source=new ProjectSource();
-const viewer=new CombinedViewer($('cad'));
+const viewer=new CombinedViewer($('cad'),async(parent,name,path)=>{
+ const drawing=findReference(drawings,parent,name,path);
+ return drawing?{drawing,content:await source.read(drawing)}:undefined;
+},message=>{$('busy-text').textContent=message;});
 let drawings:Drawing[]=[],selected=new Set<string>(),busy=false,connecting=false;
 const escape=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const size=(n:number)=>n>=1048576?`${(n/1048576).toLocaleString('nb',{maximumFractionDigits:1})} MB`:`${Math.max(1,Math.round(n/1024))} kB`;
@@ -36,21 +40,36 @@ function render(){
  $<HTMLButtonElement>('local').disabled=busy;
  const loaded=viewer.loaded;
  $('loaded-panel').hidden=!loaded.length;$('empty').hidden=!!loaded.length;$('loaded-count').textContent=String(loaded.length);
- $('loaded').innerHTML=loaded.map(x=>`<div class="loaded-row"><label><input type="checkbox" data-visible="${escape(x.drawing.id)}" ${x.visible?'checked':''} ${busy?'disabled':''}><span class="color-dot" style="background:${x.color}"></span><span title="${escape(x.drawing.name)}">${escape(x.drawing.name)}</span></label><button data-remove="${escape(x.drawing.id)}" aria-label="Fjern ${escape(x.drawing.name)}" ${busy?'disabled':''}>${icon('close')}</button></div>`).join('');
+ $('loaded').innerHTML=loaded.map(x=>`<div class="loaded-row"><label><input type="checkbox" data-visible="${escape(x.drawing.id)}" ${x.visible?'checked':''} ${busy?'disabled':''}><span class="color-dot" style="background:${x.color}"></span><span title="${escape(x.drawing.name)}">${escape(x.drawing.name)}${x.references.length?`<small class="reference-note">${new Set(x.references).size} underlag inkludert</small>`:''}</span></label><button data-remove="${escape(x.drawing.id)}" aria-label="Fjern ${escape(x.drawing.name)}" ${busy?'disabled':''}>${icon('close')}</button></div>`).join('');
 }
 async function refresh(){try{status('Henter alle DWG-filer…');const remote=await source.list();drawings=[...remote,...drawings.filter(d=>d.file)];selected=new Set([...selected].filter(id=>drawings.some(d=>d.id===id)));render();status(`${remote.length} DWG-filer hentet fra prosjekt ${source.projectId}`);}catch(e){notify(errorText(e));status('Kunne ikke hente dokumentlisten');}}
 const errorText=(e:unknown)=>e instanceof Error?e.message:'Forespørselen mislyktes. Kontroller tilkoblingen og tilgangen i StreamBIM.';
 async function connect(){
  if(source.connected){await refresh();return;}if(connecting)return;
  connecting=true;render();status('Kobler til StreamBIM…');
- try{await source.connect();$<HTMLDialogElement>('connection-dialog').close();$('connection-dot').classList.remove('neutral');$('connect').innerHTML=`${icon('link')} Tilkoblet · ${source.projectId}`;$('empty-connect').textContent='Velg tegninger fra listen';$<HTMLButtonElement>('empty-connect').disabled=true;await refresh();}
+ try{await source.connect();$<HTMLDialogElement>('connection-dialog').close();$('connection-dot').classList.remove('neutral');$('project-label').innerHTML=`StreamBIM-prosjekt<small>Prosjekt ${escape(source.projectId)} · ${escape(new URL(source.origin).hostname)}</small>`;$('connect').innerHTML=`${icon('link')} Tilkoblet · ${source.projectId}`;$('empty-connect').textContent='Velg tegninger fra listen';$<HTMLButtonElement>('empty-connect').disabled=true;await refresh();}
  catch(e){notify(errorText(e));status('Tilkoblingen er ikke klar');}
  finally{connecting=false;render();}
 }
 async function openSelected(){
  if(busy)return;busy=true;$('busy').hidden=false;render();const errors:string[]=[];
  const toOpen=drawings.filter(d=>selected.has(d.id));
- try{for(let i=0;i<toOpen.length;i++){const d=toOpen[i];if(viewer.loaded.some(x=>x.drawing.id===d.id)){selected.delete(d.id);continue;}$('busy-text').textContent=`Henter ${i+1} av ${toOpen.length} · ${d.name}`;try{const content=await source.read(d);$('busy-text').textContent=`Viser ${i+1} av ${toOpen.length} · ${d.name}`;await viewer.add(d,content);selected.delete(d.id);}catch(e){errors.push(`${d.name}: ${errorText(e)}`);}render();}}
+ try{
+  for(let i=0;i<toOpen.length;i++){
+   const d=toOpen[i];
+   if(viewer.loaded.some(x=>x.drawing.id===d.id)){selected.delete(d.id);continue;}
+   $('busy-text').textContent=`Henter ${i+1} av ${toOpen.length} · ${d.name}`;
+   try{
+    const content=await source.read(d);
+    $('busy-text').textContent=`Viser ${i+1} av ${toOpen.length} · ${d.name}`;
+    await viewer.add(d,content);
+    selected.delete(d.id);
+    const opened=viewer.loaded.find(item=>item.drawing.id===d.id);
+    if(opened?.warnings.length)errors.push(`${d.name}: ${opened.warnings.join(' ')}`);
+   }catch(e){errors.push(`${d.name}: ${errorText(e)}`);}
+   render();
+  }
+ }
  finally{busy=false;$('busy').hidden=true;render();viewer.fit();status(`${viewer.loaded.length} tegninger i felles koordinatsystem`);if(errors.length)notify(errors.join('\n'));}
 }
 $('files').addEventListener('change',e=>{const input=e.target as HTMLInputElement;if(input.checked)selected.add(input.value);else selected.delete(input.value);render();});
@@ -59,6 +78,8 @@ $('search').addEventListener('input',render);$('sort').addEventListener('change'
 $('connect').onclick=connect;$('empty-connect').onclick=connect;$('refresh').onclick=refresh;$('open').onclick=openSelected;
 $('close-dialog').onclick=()=>$<HTMLDialogElement>('connection-dialog').close();
 $('notice').querySelector('button')!.onclick=()=>$('notice').hidden=true;
+$('cad').addEventListener('webglcontextlost',event=>{event.preventDefault();status('Tegningsflaten ble avbrutt av nettleseren');notify('Nettleseren mistet tegningsflaten. Last widgeten på nytt hvis tegningene ikke kommer tilbake.');},true);
+$('cad').addEventListener('webglcontextrestored',()=>{viewer.fit();status('Tegningsflaten er gjenopprettet');},true);
 $('local').onclick=()=>$<HTMLInputElement>('file-input').click();
 $('file-input').onchange=()=>{const files=$<HTMLInputElement>('file-input').files;for(const file of Array.from(files||[])){const id=`local:${file.name}:${file.size}:${file.lastModified}`;if(!/\.(dwg|dxf)$/i.test(file.name))continue;if(!drawings.some(d=>d.id===id))drawings.push({id,name:file.name,folder:'Lokale filer',size:file.size,modified:new Date(file.lastModified).toISOString(),file});selected.add(id);}render();$<HTMLInputElement>('file-input').value='';};
 $('loaded').addEventListener('change',e=>{const input=e.target as HTMLInputElement;if(input.dataset.visible)viewer.setVisible(input.dataset.visible,input.checked);render();});

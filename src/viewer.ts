@@ -1,7 +1,11 @@
 import type {AcApDocManager, AcApDocument} from '@mlightcad/cad-simple-viewer';
 import type {Group,Box3} from 'three';
 import type {Drawing} from './streambim';
-export type LoadedDrawing={drawing:Drawing;doc:AcApDocument;root:Group;box:Box3;scene:AcApDocManager['curView']['cadScene'];color:string;visible:boolean};
+import {hasDrawingBounds} from './references.mjs';
+type SourceScene={doc:AcApDocument;scene:AcApDocManager['curView']['cadScene']};
+type RenderedDrawing={root:Group;box:Box3;sources:SourceScene[];references:string[];warnings:string[]};
+type ReferenceLookup=(parent:Drawing,blockName:string,pathName:string)=>Promise<{drawing:Drawing;content:ArrayBuffer}|undefined>;
+export type LoadedDrawing=RenderedDrawing&{drawing:Drawing;color:string;visible:boolean};
 export const COLORS=['#74d5e8','#f5bb6a','#b5a0ff','#8bdfad','#f38da9','#c5df75'];
 export class CombinedViewer {
  private manager?:AcApDocManager;
@@ -12,7 +16,7 @@ export class CombinedViewer {
  private retained=new Map<string,LoadedDrawing>();
  readonly loaded:LoadedDrawing[]=[];
  private originalColors=false;
- constructor(private container:HTMLElement){}
+ constructor(private container:HTMLElement,private lookupReference?:ReferenceLookup,private progress?:(message:string)=>void){}
  private async init() {
   if(this.manager) return;
   const [cad,model,converter,three]=await Promise.all([import('@mlightcad/cad-simple-viewer'),import('@mlightcad/data-model'),import('@mlightcad/libredwg-converter'),import('three')]);
@@ -29,10 +33,23 @@ export class CombinedViewer {
   if(this.loaded.some(x=>x.drawing.id===drawing.id)) return;
   const cached=this.retained.get(drawing.id);
   if(cached && cached.drawing.revision===drawing.revision && cached.drawing.size===drawing.size){cached.visible=true;cached.root.visible=true;this.loaded.push(cached);this.retained.delete(drawing.id);await this.mount();return;}
+  const color=COLORS[this.loaded.length%COLORS.length];
+  try {
+   const rendered=await this.renderDrawing(drawing,content,color,[],{remaining:32});
+   if(!hasDrawingBounds(rendered.box))throw new Error(`${drawing.name} har ingen synlig modellgeometri. ${rendered.warnings.join(' ')||'Innholdet kan ligge i tegningsark eller på skjulte lag.'}`);
+   this.loaded.push({...rendered,drawing,color,visible:true});
+   await this.mount();
+  } catch(error){if(this.hostDoc)await this.mount();throw error;}
+ }
+ private async renderDrawing(drawing:Drawing,content:ArrayBuffer,color:string,chain:string[],budget:{remaining:number}):Promise<RenderedDrawing>{
+  if(chain.includes(drawing.id))throw new Error(`Sirkelreferanse til ${drawing.name}.`);
+  if(chain.length>=8||budget.remaining--<=0)throw new Error('Tegningen har for mange eller for dypt nestede underlag.');
+  const m=this.manager!,model=this.model!,three=this.three!;
+  this.progress?.(`Viser ${drawing.name}`);
   const ok=await m.openDocument(drawing.name,content,{mode:this.modules!.AcEdOpenMode.Read,progressiveRendering:false,openViewMode:this.modules!.AcApOpenViewMode.Extents});
   if(!ok) throw new Error(`Vieweren kunne ikke tolke ${drawing.name}. DWG-versjonen eller innholdet støttes kanskje ikke.`);
   const doc=m.curDocument;
-  try {
+  {
    const view=m.curView;
    view.activeLayoutBtrId=view.cadScene.modelSpaceBtrId;
    await view.ensureEntitiesConvertedForExport({includeLayouts:false,includeInvisibleLayers:false});
@@ -40,8 +57,26 @@ export class CombinedViewer {
    // A file may have been saved on a paper-space tab. Export conversion can
    // restore that visibility, so explicitly show model space in our composite.
    for(const [id,layout] of view.cadScene.layouts) layout.visible=id===view.cadScene.modelSpaceBtrId;
-   const box=view.cadScene.modelSpaceLayout?.box.clone() ?? new this.three!.Box3();
-   const color=COLORS[this.loaded.length%COLORS.length];
+   const nativeBox=view.cadScene.modelSpaceLayout?.box;
+   const box=hasDrawingBounds(nativeBox)?nativeBox!.clone():new three.Box3();
+   const requests:{name:string;path:string;transform:import('three').Matrix4}[]=[];
+   // Capture INSERT transforms while this document is the active database.
+   // Several project drawings contain only these external references.
+   const collect=(record:import('@mlightcad/data-model').AcDbBlockTableRecord,transform:import('three').Matrix4,blocks:Set<string>)=>{
+    if(blocks.has(record.name))return;
+    const visited=new Set(blocks).add(record.name);
+    for(const entity of record.newIterator()){
+     if(!(entity instanceof model.AcDbBlockReference)||!entity.visibility)continue;
+     const layer=doc.database.tables.layerTable.getAt(entity.layer);
+     if(layer?.isOff||layer?.isFrozen||layer?.isHidden)continue;
+     const target=entity.blockTableRecord;
+     if(!target)continue;
+     const matrix=transform.clone().multiply(new three.Matrix4().fromArray(entity.blockTransform.elements));
+     if(target.isUnresolvedXref){requests.push({name:target.name,path:target.pathName,transform:matrix});}
+     else if(!target.isXref){collect(target,matrix,visited);}
+    }
+   };
+   collect(doc.database.tables.blockTable.modelSpace,new three.Matrix4(),new Set());
    if(!this.originalColors) m.setCompareDisplay({enabled:true,baseColor:parseInt(color.slice(1),16)});
    // Mount the fully rendered model, including expanded INSERTs, dimensions
    // and deferred glyph meshes. Native loadOverlay currently skips INSERTs.
@@ -50,9 +85,23 @@ export class CombinedViewer {
    const root=new this.three!.Group();
    root.name=drawing.name;
    for(const child of [...view.internalScene.children]) root.add(child);
-   this.loaded.push({drawing,doc,root,box,scene:view.cadScene,color,visible:true});
-  } catch(error) {await m.closeDocument(doc); throw error;}
-  await this.mount();
+   const result:RenderedDrawing={root,box,sources:[{doc,scene:view.cadScene}],references:[],warnings:[]};
+   for(const request of requests){
+    try{
+     this.progress?.(`Henter underlag ${request.name} til ${drawing.name}`);
+     const reference=await this.lookupReference?.(drawing,request.name,request.path);
+     if(!reference){result.warnings.push(`Mangler underlaget ${request.name}.`);continue;}
+     const child=await this.renderDrawing(reference.drawing,reference.content,color,[...chain,drawing.id],budget);
+     child.root.matrix.copy(request.transform);child.root.matrixAutoUpdate=false;child.root.matrixWorldNeedsUpdate=true;
+     root.add(child.root);
+     if(hasDrawingBounds(child.box))box.union(child.box.clone().applyMatrix4(request.transform));
+     result.sources.push(...child.sources);
+     result.references.push(reference.drawing.name,...child.references);
+     result.warnings.push(...child.warnings);
+    }catch(error){result.warnings.push(`${request.name}: ${error instanceof Error?error.message:'Underlaget kunne ikke åpnes.'}`);}
+   }
+   return result;
+  }
  }
  private async mount() {
   const m=this.manager!;
@@ -100,7 +149,7 @@ export class CombinedViewer {
   this.originalColors=original;
   if(!this.manager) return;
   for(const item of this.loaded) {
-   item.scene.setCompareDisplay({enabled:!original,baseColor:parseInt(item.color.slice(1),16)});
+   for(const source of item.sources)source.scene.setCompareDisplay({enabled:!original,baseColor:parseInt(item.color.slice(1),16)});
   }
   this.manager.curView.isDirty=true;
  }
