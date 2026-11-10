@@ -4,3 +4,11 @@
 #cad .ml-cli-wrapper, #cad .ml-ui-shortcut-toolbar-shell, #cad .ml-mobile-cmd-panel { display: none !important; }
 
 .reference-note { display:block; margin-top:4px; font-size:9px; color:#91b3b8; font-weight:400; }
+
+.open-summary { padding:10px 20px; color:#187e82; background:#edf6f4; font-size:11px; font-weight:600; border-bottom:1px solid #d0e8e2; }
+.file-row.is-open { background:#edf6f4; border-color:#c7e3dd; border-left:3px solid #187e82; padding-left:7px; }
+.file-row.is-open:hover { background:#e1f0ec; }
+.file-row.is-open .file-icon, .file-row.is-open strong { color:#156b6e; }
+.file-row.is-open .file-icon small { background:#edf6f4; }
+.file-info .open-badge { display:inline-flex; align-items:center; gap:5px; margin:7px 0 0; padding:3px 6px; border-radius:4px; background:#d6ece5; color:#156b6e; font-size:9px; font-weight:600; }
+.open-badge svg { width:12px; height:12px; }
