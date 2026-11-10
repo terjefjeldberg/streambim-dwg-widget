@@ -2,6 +2,13 @@ import {streamBimOrigin as validateOrigin,projectId as validateProjectId} from '
 export async function downloadProxy(req,res,next) {
  const request=new URL(req.url,'http://localhost');
  if(request.pathname!=='/streambim-file'){next();return;}
+ const caller=req.headers?.origin;
+ if(caller){
+  const allowed=(process.env.WIDGET_ALLOWED_ORIGINS||'').split(',').map(value=>value.trim()).filter(Boolean);
+  if(!allowed.includes(caller)){res.writeHead(403);res.end('Widget-adressen er ikke tillatt på filserveren.');return;}
+  res.setHeader('Access-Control-Allow-Origin',caller);
+  res.setHeader('Vary','Origin');
+ }
  if(req.method!=='GET'){res.writeHead(405);res.end();return;}
  let streamBimOrigin,project;
  try{streamBimOrigin=validateOrigin(request.searchParams.get('origin')||'');project=validateProjectId(request.searchParams.get('projectId'));}

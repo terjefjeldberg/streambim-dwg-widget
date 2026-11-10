@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "streambim-dwg-files",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-10",
+  "workers_dev": true,
+  "vars": {
+    "WIDGET_ALLOWED_ORIGINS": "https://terjefjeldberg.github.io"
+  },
+  "observability": {
+    "enabled": false
+  }
+}

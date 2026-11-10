@@ -1,0 +1,11 @@
+{
+  "sources": [],
+  "version": 1,
+  "widgets": [
+    {
+      "id": "DWG viewer",
+      "rootUrl": "https://terjefjeldberg.github.io/streambim-dwg-widget/",
+      "name": "DWG viewer"
+    }
+  ]
+}

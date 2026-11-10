@@ -17,6 +17,31 @@ Velg ønskede filer og trykk **Åpne valgte sammen**. Filene legges over hverand
 
 ## Bygg og drift
 
+### GitHub Pages og StreamBIM-konfigurasjon
+
+GitHub Actions bygger widgeten og publiserer **innholdet i `dist/`** til GitHub Pages. Velg **GitHub Actions** som publiseringskilde i Pages-innstillingene. Publisering direkte fra rotmappen på `main` leverer utviklingskoden og gir et tomt vindu.
+
+Bruk `streambim-widget.config.json` som konfigurasjon. `messageKey` er ikke nødvendig for denne widgeten, siden den bruker StreamBIMs aktive innlogging og ikke en egen OIDC-innlogging.
+
+GitHub Pages kan levere brukergrensesnittet og hente dokumentlisten gjennom StreamBIMs widget-API. DWG-filene må enten være tilgjengelige med CORS fra StreamBIM eller hentes gjennom en filserver. GitHub Pages kjører ikke Node-serveren i dette repositoriet.
+
+### Filserver med Cloudflare Workers
+
+Worker-koden ligger i `cloudflare/worker.mjs`. Den videresender filene som en strøm og bruker ingen database eller fillagring. Den tar bare imot lesekall til validerte StreamBIM-dokumentstier. Ingen StreamBIM-innloggingstoken eller cookies sendes til Workeren. Midlertidige signerte fillenker behandles av Workeren; logging av forespørsler er slått av i konfigurasjonen.
+
+Publiser på en Cloudflare-konto med Workers aktivert:
+
+```powershell
+npx wrangler login
+npx wrangler deploy --config cloudflare/wrangler.jsonc
+```
+
+`WIDGET_ALLOWED_ORIGINS` angir hvilke widget-nettsteder som får hente filer. Standardverdien i konfigurasjonen er `https://terjefjeldberg.github.io`. Den må endres hvis widgeten flyttes.
+
+Når Workeren er publisert, legg **den faktiske Worker-adressen** inn som `fileServer` i widgetens `rootUrl`, for eksempel `https://terjefjeldberg.github.io/streambim-dwg-widget/?fileServer=` etterfulgt av URL-kodet HTTPS-adresse. Alternativt kan GitHub-repositoriets Actions-variabel `VITE_FILE_SERVER` settes til Worker-adressen, og widgeten bygges på nytt. Ikke legg tokens i konfigurasjonen.
+
+### Alternativ: Node-server
+
 ```powershell
 npm run build
 npm start

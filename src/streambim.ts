@@ -55,9 +55,20 @@ export class ProjectSource {
   let response:Response;
   const target=new URL(url);
   const query=new URLSearchParams({origin:this.origin,projectId:this.projectId,path:target.pathname+target.search});
-  const download=target.origin===this.origin?`${import.meta.env.BASE_URL}streambim-file?${query}`:url;
+  const fileServer=new URL(location.href).searchParams.get('fileServer')||import.meta.env.VITE_FILE_SERVER;
+  const staticHosting=location.hostname.endsWith('.github.io');
+  let proxy:string|undefined;
+  if(fileServer){
+   const server=new URL(fileServer);
+   if(server.protocol!=='https:'||server.username||server.password)throw new Error('Filserveren må ha en gyldig HTTPS-adresse.');
+   if(!server.pathname.endsWith('/'))server.pathname+='/';
+   proxy=new URL('streambim-file',server).href;
+  }else if(!staticHosting){proxy=new URL(`${import.meta.env.BASE_URL}streambim-file`,location.href).href;}
+  // GitHub Pages has no server routes. A signed file can still be downloaded
+  // directly when StreamBIM permits CORS; otherwise a fileServer is required.
+  const download=target.origin===this.origin&&proxy?`${proxy}?${query}`:url;
   try {response=await fetch(download,{credentials:'omit',signal:AbortSignal.timeout(120000)});}
-  catch {throw new Error('Kunne ikke hente DWG-filen. StreamBIM må tillate nedlasting fra widgetens adresse (CORS).');}
+  catch {throw new Error(staticHosting&&!fileServer?'Dokumentlisten er tilkoblet, men filnedlasting trenger en filserver eller CORS-tilgang fra StreamBIM. GitHub Pages kan ikke kjøre filserveren.':'Kunne ikke hente DWG-filen. Kontroller filserverens adresse og tilgang fra widgeten (CORS).');}
   if(!response.ok) throw new Error(`Kunne ikke laste ned ${drawing.name} (${response.status}). Prøv å oppdatere listen.`);
   const content=await response.arrayBuffer();
   if(new TextDecoder().decode(content.slice(0,2))!=='AC') throw new Error('Nedlastingen var ikke en DWG-fil. Kontroller tilgangen i StreamBIM.');

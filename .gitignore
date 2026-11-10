@@ -11,3 +11,5 @@ VERIFISERING.md
 !.env.example
 *.dwg
 *.dxf
+.wrangler/
+cloudflare/.bundled/
